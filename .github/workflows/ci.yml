@@ -1,0 +1,67 @@
+# GitHub Actions CI — rust-examples
+# Репозиторий из независимых крейтов (без workspace): команды выполняются
+# по каждому крейту через --manifest-path.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  fmt:
+    name: Rustfmt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: Check formatting of all crates
+        run: |
+          for manifest in */Cargo.toml; do
+            echo "==> fmt-check $manifest"
+            cargo fmt --manifest-path "$manifest" -- --check
+          done
+
+  clippy:
+    name: Clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Lint all crates
+        run: |
+          for manifest in */Cargo.toml; do
+            echo "==> clippy $manifest"
+            cargo clippy --manifest-path "$manifest" --all-targets --all-features -- -D warnings
+          done
+
+  tests:
+    name: Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Test all crates
+        run: |
+          for manifest in */Cargo.toml; do
+            echo "==> test $manifest"
+            cargo test --manifest-path "$manifest"
+          done
