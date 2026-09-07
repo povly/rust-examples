@@ -1,4 +1,5 @@
 use winit::application::ApplicationHandler;
+use winit::dpi::LogicalSize;
 use winit::event::WindowEvent;
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::window::{Window, WindowId};
@@ -12,7 +13,13 @@ impl ApplicationHandler for App {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         self.window = Some(
             event_loop
-                .create_window(Window::default_attributes())
+                .create_window(
+                    Window::default_attributes()
+                        .with_title("Практика")
+                        .with_inner_size(LogicalSize::new(800.0, 600.0))
+                        .with_min_inner_size(LogicalSize::new(400.0, 300.0))
+                        .with_resizable(true),
+                )
                 .unwrap(),
         );
     }
@@ -45,6 +52,8 @@ impl ApplicationHandler for App {
 }
 
 fn main() {
+    env_logger::init();
+
     let event_loop = EventLoop::new().unwrap();
 
     // ControlFlow::Poll continuously runs the event loop, even if the OS hasn't
