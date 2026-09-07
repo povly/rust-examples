@@ -3,3 +3,11 @@ target/
 
 # Служебное состояние OpenCode
 .omo/
+
+
+# Added by cargo
+
+/target
+
+# Конфигурации IDE
+.idea/
