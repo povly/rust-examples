@@ -1,53 +1,84 @@
+use std::num::NonZeroUsize;
 use std::time::{Duration, Instant};
-fn pixel_loop<S>(mut state: S, update_fps: usize, update: fn(&mut S), render: fn(&mut S, dt: Duration)){
-    if update_fps == 0 {
-        panic!("Designated FPS for updates needts to be > 0");
-    }
-    let mut accum: Duration = Duration::new(0,0);
-    let mut current_time = Instant::now();
-    let mut last_time;
 
-    let update_dt = Duration::from_nanos((1_000_000_000f64 / update_fps as f64).round() as u64);
+/// Максимальный кусок реального времени, который цикл готов принять за один кадр.
+/// Защита от «спирали смерти»: зависший кадр не должен рождать сотни update подряд.
+const MAX_DT: Duration = Duration::from_millis(250);
+
+fn pixel_loop<S>(
+    mut state: S,
+    update_fps: NonZeroUsize,
+    render_fps: NonZeroUsize,
+    mut update: impl FnMut(&mut S),
+    mut render: impl FnMut(&mut S, Duration) -> bool,
+) {
+    let update_dt = Duration::from_secs_f64(1.0 / update_fps.get() as f64);
+    let frame_dt = Duration::from_secs_f64(1.0 / render_fps.get() as f64);
+
+    let mut accum = Duration::ZERO;
+    let mut last_time = Instant::now();
 
     loop {
-        last_time = current_time;
-        current_time = Instant::now();
-        let dt= current_time - last_time;
+        let frame_start = Instant::now();
+        let dt = (frame_start - last_time).min(MAX_DT);
+        last_time = frame_start;
 
-        while accum > update_dt {
+        accum += dt;
+        while accum >= update_dt {
             update(&mut state);
             accum -= update_dt;
         }
 
-        render(&mut state, dt);
+        if !render(&mut state, dt) {
+            break;
+        }
 
-        accum += dt;
+        let frame_end = frame_start + frame_dt;
+        let now = Instant::now();
+        if frame_end > now {
+            std::thread::sleep(frame_end - now);
+        }
     }
 }
 #[derive(Default)]
 struct State {
     updates_called: usize,
     renders_called: usize,
-    time_passed: Duration
+    time_passed: Duration,
+    reports_done: usize,
 }
 
 fn main() {
     let state = State::default();
+    let update_fps = NonZeroUsize::new(120).expect("update fps");
+    let render_fps = NonZeroUsize::new(60).expect("render fps");
 
-    pixel_loop(state, 120, |s | {
-        s.updates_called +=1;
-    }, |s, dt | {
-        s.renders_called +=1;
-        s.time_passed += dt;
-        if s.time_passed > Duration::from_secs(1) {
-            println!("Update FPS: {:.2}", s.updates_called as f64 / 2f64);
-            println!("Render FPS: {:.2}", s.renders_called as f64 / 2f64);
+    pixel_loop(
+        state,
+        update_fps,
+        render_fps,
+        |s| {
+            s.updates_called += 1;
+        },
+        |s, dt| {
+            s.renders_called += 1;
+            s.time_passed += dt;
 
-            s.updates_called = 0;
-            s.renders_called = 0;
-            s.time_passed = Duration::default();
-        }
+            if s.time_passed > Duration::from_secs(1) {
+                let secs = s.time_passed.as_secs_f64();
+                println!("Update FPS: {:.2}", s.updates_called as f64 / secs);
+                println!("Render FPS: {:.2}", s.renders_called as f64 / secs);
+                println!();
 
-        std::thread::sleep(Duration::from_millis(16));
-    })
+                s.updates_called = 0;
+                s.renders_called = 0;
+                s.time_passed = Duration::ZERO;
+
+                s.reports_done += 1;
+                return s.reports_done < 3;
+            }
+
+            true
+        },
+    );
 }
